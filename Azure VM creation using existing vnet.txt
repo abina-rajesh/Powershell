@@ -1,0 +1,61 @@
+
+# Variables for common values
+$location = "Canada Central"
+$resourceGroup = "lab"
+$vmName = "demovm-1"
+$ComputerName = "MyVM2019"
+$subnet = "subnet-2"
+$AddressPrefix = "192.168.2.0/24"
+$vnet = "vnet-1"
+$nsg = "nsg-2"
+$nsgrdp = "nsgrdp-1"
+$nic = "nic-2"
+$virtualMachineSize = 'Standard_B1s'
+
+# Create resource group
+Get-AzResourceGroup -ResourceGroupName $resourceGroup -Location $location
+
+#vm credentials
+$VMLocalAdminUser = "LocalAdminUser"
+$VMLocalAdminSecurePassword = ConvertTo-SecureString "P@ssw0rd@123" -AsPlainText -Force
+
+
+# Create a virtual network
+$vnet = (Get-AzVirtualNetwork -Name $vnet -ResourceGroupName $resourceGroup)
+set-AzVirtualNetworkSubnetConfig -Name Subnet-2 -VirtualNetwork $vnet -AddressPrefix "192.168.2.0/24" # here already created 2nd subnet so, i given set command
+
+# Create an inbound network security group rule for port 3389
+$nsgRuleRDP = New-AzNetworkSecurityRuleConfig `
+    -Name $nsgrdp `
+    -Protocol Tcp `
+    -Direction Inbound `
+    -Priority 1000 `
+    -SourceAddressPrefix * `
+    -SourcePortRange * `
+    -DestinationAddressPrefix * `
+    -DestinationPortRange 3389 `
+    -Access Allow
+
+# Create a network security group
+$nsg = New-AzNetworkSecurityGroup `
+    -ResourceGroupName $resourceGroup `
+    -Location $location `
+    -Name $nsg `
+    -SecurityRules $nsgRuleRDP,$nsgRuleWeb,$nsgRuleWeb1,$nsgRuleWeb2
+
+# Create a virtual network card and associate with public IP address and NSG
+$nic = New-AzNetworkInterface `
+    -Name $nic `
+    -ResourceGroupName $resourceGroup `
+    -Location $location `
+    -SubnetId $vnet.Subnets[1].Id `
+    -NetworkSecurityGroupId $nsg.Id
+
+$Credential = New-Object System.Management.Automation.PSCredential ($VMLocalAdminUser, $VMLocalAdminSecurePassword);
+$VirtualMachine = New-AzVMConfig -VMName $vmName -VMSize $virtualMachineSize
+$VirtualMachine = Set-AzVMOperatingSystem -VM $VirtualMachine -Windows -ComputerName $ComputerName -Credential $Credential -ProvisionVMAgent -EnableAutoUpdate
+$VirtualMachine = Add-AzVMNetworkInterface -VM $VirtualMachine -Id $nic.Id
+$VirtualMachine = Set-AzVMSourceImage -VM $VirtualMachine -PublisherName 'MicrosoftWindowsServer' -Offer 'WindowsServer' -Skus '2019-Datacenter' -Version latest
+
+# Create a virtual machine using the configuration
+New-AzVM -ResourceGroupName $resourceGroup -Location $Location -VM $VirtualMachine -Verbose
